@@ -1,0 +1,5 @@
+# General configuration for commit calculator
+organization: RPL-SI-2025
+repository: RUANGFRI_TIM_367_SI4603
+# List specific branches to analyze, or leave empty for all branches
+branches: [] 
