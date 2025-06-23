@@ -9,14 +9,18 @@ import sys
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import click
 from github import Github, GithubException
+from github.Repository import Repository
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from dotenv import load_dotenv
 import yaml
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
 
 # Load environment variables
 load_dotenv()
@@ -32,7 +36,7 @@ class GitHubCommitCalculator:
         self.org_name = org_name
         self.repo_name = repo_name
         self.exclude_merge_commits = exclude_merge_commits
-        self.repo = None
+        self.repo: Optional[Repository] = None
         self._authenticate()
 
     def _authenticate(self):
@@ -49,6 +53,8 @@ class GitHubCommitCalculator:
             raise e
 
     def get_all_branches(self) -> List[str]:
+        if not self.repo:
+            return []
         branches = []
         try:
             for branch in self.repo.get_branches():
@@ -67,9 +73,11 @@ class GitHubCommitCalculator:
         return any(indicator in message for indicator in merge_indicators)
 
     def get_commits_for_branch(self, branch_name: str, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[Dict]:
+        if not self.repo:
+            return []
         commits = []
         merge_commits_excluded = 0
-        params = {'sha': branch_name}
+        params: Dict[str, Any] = {'sha': branch_name}
         if start_date:
             params['since'] = start_date
         if end_date:
@@ -100,7 +108,7 @@ class GitHubCommitCalculator:
         if branches is None:
             branches = self.get_all_branches()
         
-        user_stats = defaultdict(lambda: {
+        user_stats: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
             'unique_commits': 0, 'branches': set(), 'unique_commits_by_branch': defaultdict(int),
             'first_commit': None, 'last_commit': None
         })
@@ -179,6 +187,68 @@ class GitHubCommitCalculator:
                     branch_table.add_row(branch, str(commits), f"{percentage:.1f}%")
                 console.print(branch_table)
 
+def save_to_excel(all_results: Dict, filename: str, detailed: bool):
+    """Saves the analysis results to an Excel file."""
+    workbook = openpyxl.Workbook()
+    if "Sheet" in workbook.sheetnames:
+        workbook.remove(workbook["Sheet"])
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    center_align = Alignment(horizontal='center', vertical='center')
+
+    for repo_name, repo_data in all_results.items():
+        sheet_name = repo_name[:31]
+        ws = workbook.create_sheet(title=sheet_name)
+        
+        ws.cell(row=1, column=1, value=f"Analysis for Repository: {repo_name}").font = Font(bold=True, size=16)
+        
+        current_row = 3
+        
+        for time_range, stats in repo_data.items():
+            ws.cell(row=current_row, column=1, value=f"Time Range: {time_range}").font = Font(bold=True, size=14)
+            current_row += 1
+            
+            headers = ["Rank", "User", "Unique Commits", "Branches", "First Commit", "Last Commit"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=current_row, column=col, value=header)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = center_align
+
+            sorted_users = sorted(stats['user_stats'].items(), key=lambda x: x[1]['unique_commits'], reverse=True)
+            
+            for rank, (user, data) in enumerate(sorted_users, 1):
+                first = data['first_commit'].strftime('%Y-%m-%d') if data['first_commit'] else 'N/A'
+                last = data['last_commit'].strftime('%Y-%m-%d') if data['last_commit'] else 'N/A'
+                
+                ws.cell(row=current_row + rank, column=1, value=rank).alignment = center_align
+                ws.cell(row=current_row + rank, column=2, value=user)
+                ws.cell(row=current_row + rank, column=3, value=data['unique_commits']).alignment = center_align
+                ws.cell(row=current_row + rank, column=4, value=len(data['branches'])).alignment = center_align
+                ws.cell(row=current_row + rank, column=5, value=first).alignment = center_align
+                ws.cell(row=current_row + rank, column=6, value=last).alignment = center_align
+            
+            current_row += len(sorted_users) + 2
+        
+        for col in ws.columns:
+            max_length = 0
+            column_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+    try:
+        workbook.save(filename)
+        console.print(f"✅ Successfully saved Excel report to [bold]{filename}[/bold]", style="green")
+    except Exception as e:
+        console.print(f"❌ Error saving Excel file: {e}", style="red")
+
 def load_config(config_path: str = "config.yaml") -> dict:
     if not os.path.exists(config_path):
         console.print(f"⚠️  Config file {config_path} not found.", style="yellow")
@@ -195,7 +265,8 @@ def load_config(config_path: str = "config.yaml") -> dict:
 @click.option('--detailed', '-d', is_flag=True, help='Show detailed branch statistics for each user.')
 @click.option('--include-merge-commits', is_flag=True, help='Include merge commits in the analysis.')
 @click.option('--output', '-O', type=click.Path(), help='Output file for results (JSON format).')
-def main(config, org, repos, token, branches, detailed, include_merge_commits, output):
+@click.option('--output-excel', type=click.Path(), help='Output file for results (Excel format).')
+def main(config, org, repos, token, branches, detailed, include_merge_commits, output, output_excel):
     """Calculate unique user commits for multiple repositories and time ranges."""
     config_data = load_config(config)
     
@@ -246,19 +317,14 @@ def main(config, org, repos, token, branches, detailed, include_merge_commits, o
             continue
 
     if output:
-        for repo_data in overall_stats.values():
-            for stats in repo_data.values():
-                for user_data in stats['user_stats'].values():
-                    if user_data.get('first_commit'):
-                        user_data['first_commit'] = user_data['first_commit'].isoformat()
-                    if user_data.get('last_commit'):
-                        user_data['last_commit'] = user_data['last_commit'].isoformat()
-        
+        # Create a deep copy for JSON serialization to avoid modifying the original data
+        json_output_stats = json.loads(json.dumps(overall_stats, default=str))
         with open(output, 'w') as f:
-            json.dump(overall_stats, f, indent=2)
-        console.print(f"\n💾 All results saved to {output}", style="green")
-    
-    console.print("\n✅ Analysis complete!", style="bold green")
+            json.dump(json_output_stats, f, indent=4)
+        console.print(f"✅ Successfully saved results to [bold]{output}[/bold]", style="green")
 
-if __name__ == "__main__":
-    main() 
+    if output_excel:
+        save_to_excel(overall_stats, output_excel, detailed)
+
+if __name__ == '__main__':
+    main()

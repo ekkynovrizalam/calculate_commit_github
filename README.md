@@ -12,6 +12,7 @@ A powerful command-line tool to analyze commit history in GitHub repositories. I
 -   **Rich Console Output**: Displays results in clean, easy-to-read tables.
 -   **Flexible Configuration**: Configure via `config.yaml`, `.env`, or command-line arguments.
 -   **JSON Export**: Save the full analysis results to a JSON file.
+-   **Excel Export**: Export the analysis to a formatted multi-sheet Excel file.
 
 ## Setup
 
@@ -106,6 +107,14 @@ To save the complete analysis results to a JSON file:
 python3 commit_calculator.py --output results.json
 ```
 
+### **Saving Results to Excel**
+
+To export the complete analysis into a formatted Excel spreadsheet:
+
+```bash
+python3 commit_calculator.py --output-excel report.xlsx
+```
+
 ### **Analyzing Different Repository(ies)**
 
 You can override the `config.yaml` settings using command-line options:
@@ -123,12 +132,13 @@ python3 commit_calculator.py --org another-org --repos repo1,repo2,repo3
 The tool provides comprehensive output including:
 
 - **Console Display**: Clean tables showing unique commit counts per user for each repository and time range
-- **JSON Export**: Complete analysis data including:
+- **JSON Export**: Complete raw data including:
   - Per-repository statistics
   - Per-time-range breakdowns
   - Detailed commit information
   - Branch-specific data
   - User contribution summaries
+- **Excel Export**: A formatted report with a separate sheet for each repository, containing easy-to-read tables for each time range.
 
 ## Example Output
 
