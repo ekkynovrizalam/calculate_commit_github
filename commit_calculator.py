@@ -26,7 +26,7 @@ console = Console()
 class GitHubCommitCalculator:
     """Calculate user commits across all branches in a GitHub repository."""
     
-    def __init__(self, token: str, org_name: str, repo_name: str, exclude_merge_commits: bool = True, count_unique_commits: bool = False):
+    def __init__(self, token: str, org_name: str, repo_name: str, exclude_merge_commits: bool = True):
         """
         Initialize the calculator.
         
@@ -35,13 +35,11 @@ class GitHubCommitCalculator:
             org_name: GitHub organization name
             repo_name: Repository name
             exclude_merge_commits: Whether to exclude merge commits from analysis
-            count_unique_commits: Whether to count only unique commits (based on message and changes)
         """
         self.github = Github(token)
         self.org_name = org_name
         self.repo_name = repo_name
         self.exclude_merge_commits = exclude_merge_commits
-        self.count_unique_commits = count_unique_commits
         self.repo = None
         self._authenticate()
     
@@ -118,12 +116,9 @@ class GitHubCommitCalculator:
                     'message': commit.commit.message,
                     'message_short': commit.commit.message.split('\n')[0][:50] + '...' if len(commit.commit.message) > 50 else commit.commit.message,
                     'branch': branch_name,
-                    'parents': [p.sha for p in commit.parents]
+                    'parents': [p.sha for p in commit.parents],
+                    'tree_sha': commit.commit.tree.sha
                 }
-                
-                # If counting unique commits, get the tree SHA (represents the actual changes)
-                if self.count_unique_commits:
-                    commit_data['tree_sha'] = commit.commit.tree.sha
                 
                 commits.append(commit_data)
             
@@ -177,15 +172,10 @@ class GitHubCommitCalculator:
                 for commit in commits:
                     author = commit['author']
                     message = commit['message']
-                    tree_sha = commit.get('tree_sha', '') if self.count_unique_commits else ''
+                    tree_sha = commit['tree_sha']
                     
-                    # Create unique identifier for the commit
-                    if self.count_unique_commits:
-                        commit_key = (author, message, tree_sha)
-                    else:
-                        commit_key = (author, message, commit['full_sha'])
+                    commit_key = (author, message, tree_sha)
                     
-                    # Check if this is a unique commit
                     is_unique = commit_key not in seen_commits
                     if is_unique:
                         seen_commits.add(commit_key)
@@ -215,7 +205,7 @@ class GitHubCommitCalculator:
             user_stats[user]['commits_by_branch'] = dict(user_stats[user]['commits_by_branch'])
             user_stats[user]['unique_commits_by_branch'] = dict(user_stats[user]['unique_commits_by_branch'])
         
-        if self.count_unique_commits and duplicate_commits > 0:
+        if duplicate_commits > 0:
             console.print(f"🔍 Found {duplicate_commits} duplicate commits across all users", style="blue")
         
         return {
@@ -237,9 +227,8 @@ class GitHubCommitCalculator:
         summary_table.add_column("Value", style="magenta")
         
         summary_table.add_row("Total Commits", str(stats['total_commits']))
-        if self.count_unique_commits:
-            summary_table.add_row("Unique Commits", str(stats['unique_commits']))
-            summary_table.add_row("Duplicate Commits", str(stats['duplicate_commits']))
+        summary_table.add_row("Unique Commits", str(stats['unique_commits']))
+        summary_table.add_row("Duplicate Commits", str(stats['duplicate_commits']))
         summary_table.add_row("Total Branches", str(stats['total_branches']))
         summary_table.add_row("Active Contributors", str(len(stats['user_stats'])))
         
@@ -250,26 +239,17 @@ class GitHubCommitCalculator:
         console.print("\n👥 USER COMMIT STATISTICS", style="bold blue")
         console.print("=" * 50)
         
-        # Sort users by unique commits if enabled, otherwise by total commits
-        if self.count_unique_commits:
-            sort_key = lambda x: x[1]['unique_commits']
-            commit_column = "Unique Commits"
-        else:
-            sort_key = lambda x: x[1]['total_commits']
-            commit_column = "Total Commits"
-        
         sorted_users = sorted(
             stats['user_stats'].items(),
-            key=sort_key,
+            key=lambda x: x[1]['unique_commits'],
             reverse=True
         )
         
         user_table = Table(title="User Commit Statistics")
         user_table.add_column("Rank", style="cyan", justify="center")
         user_table.add_column("User", style="green")
-        user_table.add_column(commit_column, style="magenta", justify="center")
-        if self.count_unique_commits:
-            user_table.add_column("Total Commits", style="yellow", justify="center")
+        user_table.add_column("Unique Commits", style="magenta", justify="center")
+        user_table.add_column("Total Commits", style="yellow", justify="center")
         user_table.add_column("Branches", style="yellow", justify="center")
         user_table.add_column("First Commit", style="blue")
         user_table.add_column("Last Commit", style="blue")
@@ -278,19 +258,15 @@ class GitHubCommitCalculator:
             first_commit = user_data['first_commit'].strftime('%Y-%m-%d') if user_data['first_commit'] else 'N/A'
             last_commit = user_data['last_commit'].strftime('%Y-%m-%d') if user_data['last_commit'] else 'N/A'
             
-            row_data = [
+            user_table.add_row(
                 str(rank),
                 user,
-                str(user_data['unique_commits'] if self.count_unique_commits else user_data['total_commits']),
+                str(user_data['unique_commits']),
+                str(user_data['total_commits']),
                 str(len(user_data['branches'])),
                 first_commit,
                 last_commit
-            ]
-            
-            if self.count_unique_commits:
-                row_data.insert(3, str(user_data['total_commits']))
-            
-            user_table.add_row(*row_data)
+            )
         
         console.print(user_table)
         
@@ -302,60 +278,36 @@ class GitHubCommitCalculator:
         console.print("\n🌿 DETAILED BRANCH STATISTICS", style="bold blue")
         console.print("=" * 50)
         
-        # Sort users by unique commits if enabled, otherwise by total commits
-        if self.count_unique_commits:
-            sort_key = lambda x: x[1]['unique_commits']
-            commit_type = "unique commits"
-        else:
-            sort_key = lambda x: x[1]['total_commits']
-            commit_type = "commits"
-        
         for user, user_data in sorted(
             stats['user_stats'].items(),
-            key=sort_key,
+            key=lambda x: x[1]['unique_commits'],
             reverse=True
         ):
-            commit_count = user_data['unique_commits'] if self.count_unique_commits else user_data['total_commits']
-            console.print(f"\n👤 {user} ({commit_count} {commit_type})", style="bold green")
+            commit_count = user_data['unique_commits']
+            console.print(f"\n👤 {user} ({commit_count} unique commits)", style="bold green")
             
             branch_table = Table(title=f"Branch Activity for {user}")
             branch_table.add_column("Branch", style="cyan")
-            if self.count_unique_commits:
-                branch_table.add_column("Unique Commits", style="magenta", justify="center")
-                branch_table.add_column("Total Commits", style="yellow", justify="center")
-            else:
-                branch_table.add_column("Commits", style="magenta", justify="center")
+            branch_table.add_column("Unique Commits", style="magenta", justify="center")
+            branch_table.add_column("Total Commits", style="yellow", justify="center")
             branch_table.add_column("Percentage", style="yellow", justify="center")
             
-            # Get the appropriate commit data
-            if self.count_unique_commits:
-                branch_data = user_data['unique_commits_by_branch']
-                total_commits = user_data['unique_commits']
-            else:
-                branch_data = user_data['commits_by_branch']
-                total_commits = user_data['total_commits']
+            branch_data = user_data['unique_commits_by_branch']
+            total_unique_commits = user_data['unique_commits']
             
             for branch, commits in sorted(
                 branch_data.items(),
                 key=lambda x: x[1],
                 reverse=True
             ):
-                percentage = (commits / total_commits) * 100
-                
-                if self.count_unique_commits:
-                    total_branch_commits = user_data['commits_by_branch'].get(branch, 0)
-                    branch_table.add_row(
-                        branch,
-                        str(commits),
-                        str(total_branch_commits),
-                        f"{percentage:.1f}%"
-                    )
-                else:
-                    branch_table.add_row(
-                        branch,
-                        str(commits),
-                        f"{percentage:.1f}%"
-                    )
+                percentage = (commits / total_unique_commits) * 100 if total_unique_commits > 0 else 0
+                total_branch_commits = user_data['commits_by_branch'].get(branch, 0)
+                branch_table.add_row(
+                    branch,
+                    str(commits),
+                    str(total_branch_commits),
+                    f"{percentage:.1f}%"
+                )
             
             console.print(branch_table)
 
@@ -377,11 +329,11 @@ def load_config(config_path: str = "config.yaml") -> dict:
 @click.option('--branches', '-b', multiple=True, help='Specific branches to analyze (can be used multiple times)')
 @click.option('--detailed', '-d', is_flag=True, help='Show detailed branch statistics for each user')
 @click.option('--include-merge-commits', is_flag=True, help='Include merge commits in the analysis (default: exclude)')
-@click.option('--unique-only', is_flag=True, help='Count only unique commits (exclude duplicates across branches)')
 @click.option('--output', '-O', type=click.Path(), help='Output file for results (JSON format)')
-def main(config, org, repo, token, branches, detailed, include_merge_commits, unique_only, output):
+def main(config, org, repo, token, branches, detailed, include_merge_commits, output):
     """
     Calculate user commits across all branches in a GitHub repository.
+    By default, this tool counts only UNIQUE commits.
     """
     # Load config file
     config_data = load_config(config)
@@ -405,14 +357,13 @@ def main(config, org, repo, token, branches, detailed, include_merge_commits, un
         sys.exit(1)
     
     try:
-        calculator = GitHubCommitCalculator(token, org, repo, exclude_merge_commits, unique_only)
+        calculator = GitHubCommitCalculator(token, org, repo, exclude_merge_commits)
         console.print(f"🚀 Starting commit analysis for {org}/{repo}", style="bold green")
         if exclude_merge_commits:
             console.print("🔍 Merge commits will be excluded from analysis", style="blue")
         else:
             console.print("🔍 Including merge commits in analysis", style="blue")
-        if unique_only:
-            console.print("🔍 Counting only unique commits (excluding duplicates across branches)", style="blue")
+        console.print("✅ Counting only unique commits by default.", style="bold blue")
         stats = calculator.calculate_commits(branch_list)
         calculator.display_summary(stats)
         calculator.display_user_stats(stats, detailed)
