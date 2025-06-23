@@ -1,10 +1,12 @@
 # GitHub Commit Calculator
 
-A powerful command-line tool to analyze commit history in a GitHub repository. It focuses on **unique contributions** to provide fair and accurate statistics, filtering out duplicate and merge commits by default.
+A powerful command-line tool to analyze commit history in GitHub repositories. It focuses on **unique contributions** to provide fair and accurate statistics, filtering out duplicate and merge commits by default.
 
 ## Features
 
 -   **Unique Commit Analysis**: Counts only unique commits (based on message and code changes) to measure true contributions.
+-   **Multi-Repository Support**: Analyze multiple repositories within the same organization in a single run.
+-   **Time Range Analysis**: Define custom time periods for detailed sprint or milestone analysis.
 -   **Detailed Statistics**: Provides a comprehensive breakdown of commits per user and per branch.
 -   **Merge Commit Filtering**: Excludes merge commits by default for cleaner, more meaningful stats.
 -   **Rich Console Output**: Displays results in clean, easy-to-read tables.
@@ -36,15 +38,25 @@ A powerful command-line tool to analyze commit history in a GitHub repository. I
         GITHUB_TOKEN=your_github_token_here
         ```
 
-2.  **Configure your Repository:**
-    -   Open `config.yaml` and set the `organization` and `repository` you want to analyze.
+2.  **Configure your Repository(ies):**
+    -   Open `config.yaml` and set the `organization` and `repositories` you want to analyze.
+    -   For single repository analysis:
         ```yaml
         organization: your_org_name
-        repository: your_repo_name
+        repositories:
+          - your_repo_name
+        ```
+    -   For multi-repository analysis:
+        ```yaml
+        organization: your_org_name
+        repositories:
+          - repo1_name
+          - repo2_name
+          - repo3_name
         ```
 
 3.  **Time Range Analysis (Optional):**
-    -   To analyze specific periods, define `time_ranges` in `config.yaml`. The tool will run a separate analysis for each range.
+    -   To analyze specific periods, define `time_ranges` in `config.yaml`. The tool will run a separate analysis for each range across all repositories.
     -   If this section is empty or removed, the tool will analyze the entire commit history.
         ```yaml
         time_ranges:
@@ -60,11 +72,11 @@ A powerful command-line tool to analyze commit history in a GitHub repository. I
 
 The tool is designed to be simple to use. By default, it will use the settings from your `config.yaml` and count only unique commits, excluding merges.
 
-If `time_ranges` are defined in `config.yaml`, the script will automatically run a separate analysis for each time period.
+If `time_ranges` are defined in `config.yaml`, the script will automatically run a separate analysis for each time period across all configured repositories.
 
 ### **Basic Analysis**
 
-To run a standard analysis on the repository defined in `config.yaml`:
+To run a standard analysis on the repository(ies) defined in `config.yaml`:
 
 ```bash
 python3 commit_calculator.py
@@ -94,10 +106,57 @@ To save the complete analysis results to a JSON file:
 python3 commit_calculator.py --output results.json
 ```
 
-### **Analyzing a Different Repository**
+### **Analyzing Different Repository(ies)**
 
 You can override the `config.yaml` settings using command-line options:
 
 ```bash
+# Single repository
 python3 commit_calculator.py --org another-org --repo another-repo
+
+# Multiple repositories (comma-separated)
+python3 commit_calculator.py --org another-org --repos repo1,repo2,repo3
 ```
+
+## Output Format
+
+The tool provides comprehensive output including:
+
+- **Console Display**: Clean tables showing unique commit counts per user for each repository and time range
+- **JSON Export**: Complete analysis data including:
+  - Per-repository statistics
+  - Per-time-range breakdowns
+  - Detailed commit information
+  - Branch-specific data
+  - User contribution summaries
+
+## Example Output
+
+```
+GitHub Commit Calculator - Multi-Repository Analysis
+==================================================
+
+Organization: your-org
+Repositories: ['repo1', 'repo2', 'repo3']
+Time Ranges: ['Sprint 1', 'Sprint 2']
+
+Repository: repo1
+Sprint 1 (2025-03-17 to 2025-05-03)
+┌─────────────┬─────────────────┐
+│ User        │ Unique Commits  │
+├─────────────┼─────────────────┤
+│ user1       │ 45              │
+│ user2       │ 23              │
+│ user3       │ 12              │
+└─────────────┴─────────────────┘
+
+Sprint 2 (2025-05-05 to 2025-06-07)
+┌─────────────┬─────────────────┐
+│ User        │ Unique Commits  │
+├─────────────┼─────────────────┤
+│ user1       │ 38              │
+│ user2       │ 31              │
+│ user3       │ 19              │
+└─────────────┴─────────────────┘
+
+[... continues for all repositories and time ranges ...]

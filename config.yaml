@@ -1,6 +1,11 @@
 # General configuration for commit calculator
 organization: RPL-SI-2025
-repository: RUANGFRI_TIM_367_SI4603
+# List one or more repositories to analyze.
+repositories:
+  - RUANGFRI_TIM_367_SI4603
+  # - another-repo-name
+  # - a-third-repo-name
+
 # List specific branches to analyze, or leave empty for all branches
 branches: []
 
