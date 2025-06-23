@@ -281,7 +281,7 @@ def main(config, org, repos, token, branches, detailed, include_merge_commits, o
     overall_stats = {}
 
     for repo_name in repositories:
-        console.print(f"\n\n{'='*25}\n ANALYZING REPOSITORY: {org}/{repo_name} \n{'='*25}", style="bold yellow on_black")
+        console.print(f"\n\n{'='*25}\n ANALYZING REPOSITORY: {org}/{repo_name} \n{'='*25}", style="bold yellow on black")
         try:
             calculator = GitHubCommitCalculator(token, org, repo_name, not include_merge_commits)
             branch_list = list(branches) if branches else config_data.get('branches')

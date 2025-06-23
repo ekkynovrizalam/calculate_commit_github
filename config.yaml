@@ -3,8 +3,11 @@ organization: RPL-SI-2025
 # List one or more repositories to analyze.
 repositories:
   - RUANGFRI_TIM_367_SI4603
-  # - another-repo-name
-  # - a-third-repo-name
+  - SWAPHUB_TIM_365_SI4603
+  - TRASHGO_TIM_363_SI4603
+  - DOLAN_TIM_366_SI4603
+  - FOODSHARE_TIM_362_SI4603
+  - STUNTINGS_TIM_364_SI4603
 
 # List specific branches to analyze, or leave empty for all branches
 branches: []
