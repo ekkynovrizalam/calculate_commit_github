@@ -43,9 +43,24 @@ A powerful command-line tool to analyze commit history in a GitHub repository. I
         repository: your_repo_name
         ```
 
+3.  **Time Range Analysis (Optional):**
+    -   To analyze specific periods, define `time_ranges` in `config.yaml`. The tool will run a separate analysis for each range.
+    -   If this section is empty or removed, the tool will analyze the entire commit history.
+        ```yaml
+        time_ranges:
+          - name: "Sprint 1"
+            start_date: "2025-03-17"
+            end_date: "2025-05-03"
+          - name: "Sprint 2"
+            start_date: "2025-05-05"
+            end_date: "2025-06-07"
+        ```
+
 ## How to Run
 
 The tool is designed to be simple to use. By default, it will use the settings from your `config.yaml` and count only unique commits, excluding merges.
+
+If `time_ranges` are defined in `config.yaml`, the script will automatically run a separate analysis for each time period.
 
 ### **Basic Analysis**
 

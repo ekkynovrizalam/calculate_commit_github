@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 GitHub Commit Calculator
-Calculate user commits across all branches in a GitHub repository.
+Calculate unique user commits across all branches in a GitHub repository.
 """
 
 import os
 import sys
-from collections import defaultdict, Counter
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 import click
 from github import Github, GithubException
 from rich.console import Console
@@ -24,8 +24,8 @@ console = Console()
 
 
 class GitHubCommitCalculator:
-    """Calculate user commits across all branches in a GitHub repository."""
-    
+    """Calculate unique user commits across all branches in a GitHub repository."""
+
     def __init__(self, token: str, org_name: str, repo_name: str, exclude_merge_commits: bool = True):
         """
         Initialize the calculator.
@@ -42,11 +42,10 @@ class GitHubCommitCalculator:
         self.exclude_merge_commits = exclude_merge_commits
         self.repo = None
         self._authenticate()
-    
+
     def _authenticate(self):
         """Authenticate with GitHub and get repository."""
         try:
-            # Try to get organization repository
             org = self.github.get_organization(self.org_name)
             self.repo = org.get_repo(self.repo_name)
             console.print(f"✅ Successfully connected to {self.org_name}/{self.repo_name}", style="green")
@@ -60,7 +59,7 @@ class GitHubCommitCalculator:
             else:
                 console.print(f"❌ Error: {e}", style="red")
                 sys.exit(1)
-    
+
     def get_all_branches(self) -> List[str]:
         """Get all branches in the repository."""
         branches = []
@@ -72,55 +71,43 @@ class GitHubCommitCalculator:
         except GithubException as e:
             console.print(f"❌ Error fetching branches: {e}", style="red")
             return []
-    
+
     def is_merge_commit(self, commit) -> bool:
         """Check if a commit is a merge commit."""
-        # Check if commit has multiple parents (merge commit)
         if len(commit.parents) > 1:
             return True
         
-        # Check commit message for merge indicators
         message = commit.commit.message.lower()
         merge_indicators = [
-            'merge pull request',
-            'merge branch',
-            'merge remote',
-            'merge from',
-            'merge into',
-            'merge:',
-            'merged',
-            'merging'
+            'merge pull request', 'merge branch', 'merge remote',
+            'merge from', 'merge into', 'merge:', 'merged', 'merging'
         ]
-        
         return any(indicator in message for indicator in merge_indicators)
-    
-    def get_commits_for_branch(self, branch_name: str) -> List[Dict]:
-        """Get all commits for a specific branch, excluding merge commits if configured."""
+
+    def get_commits_for_branch(self, branch_name: str, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[Dict]:
+        """Get all commits for a specific branch within a date range."""
         commits = []
         merge_commits_excluded = 0
         
+        # Prepare parameters for the API call
+        params = {'sha': branch_name}
+        if start_date:
+            params['since'] = start_date
+        if end_date:
+            params['until'] = end_date
+            
         try:
-            for commit in self.repo.get_commits(sha=branch_name):
-                # Skip merge commits if configured to exclude them
+            for commit in self.repo.get_commits(**params):
                 if self.exclude_merge_commits and self.is_merge_commit(commit):
                     merge_commits_excluded += 1
                     continue
                 
-                # Get commit details for uniqueness checking
-                commit_data = {
-                    'sha': commit.sha[:8],
-                    'full_sha': commit.sha,
+                commits.append({
                     'author': commit.author.login if commit.author else 'Unknown',
-                    'author_name': commit.commit.author.name,
                     'date': commit.commit.author.date,
                     'message': commit.commit.message,
-                    'message_short': commit.commit.message.split('\n')[0][:50] + '...' if len(commit.commit.message) > 50 else commit.commit.message,
-                    'branch': branch_name,
-                    'parents': [p.sha for p in commit.parents],
                     'tree_sha': commit.commit.tree.sha
-                }
-                
-                commits.append(commit_data)
+                })
             
             if self.exclude_merge_commits and merge_commits_excluded > 0:
                 console.print(f"📝 Branch {branch_name}: Excluded {merge_commits_excluded} merge commits", style="dim")
@@ -129,188 +116,126 @@ class GitHubCommitCalculator:
         except GithubException as e:
             console.print(f"⚠️  Error fetching commits for branch {branch_name}: {e}", style="yellow")
             return []
-    
-    def calculate_commits(self, branches: Optional[List[str]] = None) -> Dict:
-        """
-        Calculate commits across all branches or specified branches.
-        
-        Args:
-            branches: List of branch names to analyze. If None, analyze all branches.
-        
-        Returns:
-            Dictionary with commit statistics
-        """
+
+    def calculate_commits(self, branches: Optional[List[str]] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> Dict:
+        """Calculate unique commits across all branches or specified branches within a date range."""
         if branches is None:
             branches = self.get_all_branches()
         
-        all_commits = []
         user_stats = defaultdict(lambda: {
-            'total_commits': 0,
             'unique_commits': 0,
             'branches': set(),
-            'commits_by_branch': defaultdict(int),
             'unique_commits_by_branch': defaultdict(int),
             'first_commit': None,
             'last_commit': None
         })
         
-        # Track unique commits across all users
-        seen_commits = set()  # (author, message, tree_sha) tuples
-        duplicate_commits = 0
+        seen_commits = set()
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
             task = progress.add_task("Analyzing commits...", total=len(branches))
-            
             for branch in branches:
                 progress.update(task, description=f"Processing branch: {branch}")
-                commits = self.get_commits_for_branch(branch)
+                commits = self.get_commits_for_branch(branch, start_date, end_date)
                 
                 for commit in commits:
                     author = commit['author']
-                    message = commit['message']
-                    tree_sha = commit['tree_sha']
+                    commit_key = (author, commit['message'], commit['tree_sha'])
                     
-                    commit_key = (author, message, tree_sha)
-                    
-                    is_unique = commit_key not in seen_commits
-                    if is_unique:
+                    if commit_key not in seen_commits:
                         seen_commits.add(commit_key)
-                        user_stats[author]['unique_commits'] += 1
-                        user_stats[author]['unique_commits_by_branch'][branch] += 1
-                    else:
-                        duplicate_commits += 1
-                    
-                    # Always count total commits
-                    user_stats[author]['total_commits'] += 1
-                    user_stats[author]['branches'].add(branch)
-                    user_stats[author]['commits_by_branch'][branch] += 1
-                    
-                    # Track first and last commit dates
-                    commit_date = commit['date']
-                    if user_stats[author]['first_commit'] is None or commit_date < user_stats[author]['first_commit']:
-                        user_stats[author]['first_commit'] = commit_date
-                    if user_stats[author]['last_commit'] is None or commit_date > user_stats[author]['last_commit']:
-                        user_stats[author]['last_commit'] = commit_date
-                
-                all_commits.extend(commits)
-                progress.advance(task)
+                        
+                        stats = user_stats[author]
+                        stats['unique_commits'] += 1
+                        stats['branches'].add(branch)
+                        stats['unique_commits_by_branch'][branch] += 1
+                        
+                        commit_date = commit['date']
+                        if stats['first_commit'] is None or commit_date < stats['first_commit']:
+                            stats['first_commit'] = commit_date
+                        if stats['last_commit'] is None or commit_date > stats['last_commit']:
+                            stats['last_commit'] = commit_date
         
-        # Convert sets to lists for JSON serialization
         for user in user_stats:
             user_stats[user]['branches'] = list(user_stats[user]['branches'])
-            user_stats[user]['commits_by_branch'] = dict(user_stats[user]['commits_by_branch'])
             user_stats[user]['unique_commits_by_branch'] = dict(user_stats[user]['unique_commits_by_branch'])
         
-        if duplicate_commits > 0:
-            console.print(f"🔍 Found {duplicate_commits} duplicate commits across all users", style="blue")
-        
         return {
-            'total_commits': len(all_commits),
             'unique_commits': len(seen_commits),
-            'duplicate_commits': duplicate_commits,
             'total_branches': len(branches),
             'user_stats': dict(user_stats),
-            'all_commits': all_commits
         }
-    
-    def display_summary(self, stats: Dict):
+
+    def display_summary(self, stats: Dict, time_range_name: Optional[str] = None):
         """Display a summary of commit statistics."""
-        console.print("\n📊 COMMIT SUMMARY", style="bold blue")
+        title = "Repository Summary"
+        if time_range_name:
+            title = f"{title} ({time_range_name})"
+
+        console.print(f"\n📊 COMMIT SUMMARY for {time_range_name}", style="bold blue")
         console.print("=" * 50)
         
-        summary_table = Table(title="Repository Summary")
+        summary_table = Table(title=title)
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="magenta")
         
-        summary_table.add_row("Total Commits", str(stats['total_commits']))
         summary_table.add_row("Unique Commits", str(stats['unique_commits']))
-        summary_table.add_row("Duplicate Commits", str(stats['duplicate_commits']))
         summary_table.add_row("Total Branches", str(stats['total_branches']))
         summary_table.add_row("Active Contributors", str(len(stats['user_stats'])))
         
         console.print(summary_table)
-    
-    def display_user_stats(self, stats: Dict, detailed: bool = False):
+
+    def display_user_stats(self, stats: Dict, detailed: bool = False, time_range_name: Optional[str] = None):
         """Display user commit statistics."""
-        console.print("\n👥 USER COMMIT STATISTICS", style="bold blue")
+        title = "User Commit Statistics"
+        if time_range_name:
+            title = f"{title} ({time_range_name})"
+        
+        console.print(f"\n👥 USER COMMIT STATISTICS for {time_range_name}", style="bold blue")
         console.print("=" * 50)
         
-        sorted_users = sorted(
-            stats['user_stats'].items(),
-            key=lambda x: x[1]['unique_commits'],
-            reverse=True
-        )
+        sorted_users = sorted(stats['user_stats'].items(), key=lambda x: x[1]['unique_commits'], reverse=True)
         
-        user_table = Table(title="User Commit Statistics")
+        user_table = Table(title=title)
         user_table.add_column("Rank", style="cyan", justify="center")
         user_table.add_column("User", style="green")
         user_table.add_column("Unique Commits", style="magenta", justify="center")
-        user_table.add_column("Total Commits", style="yellow", justify="center")
         user_table.add_column("Branches", style="yellow", justify="center")
         user_table.add_column("First Commit", style="blue")
         user_table.add_column("Last Commit", style="blue")
         
-        for rank, (user, user_data) in enumerate(sorted_users, 1):
-            first_commit = user_data['first_commit'].strftime('%Y-%m-%d') if user_data['first_commit'] else 'N/A'
-            last_commit = user_data['last_commit'].strftime('%Y-%m-%d') if user_data['last_commit'] else 'N/A'
-            
-            user_table.add_row(
-                str(rank),
-                user,
-                str(user_data['unique_commits']),
-                str(user_data['total_commits']),
-                str(len(user_data['branches'])),
-                first_commit,
-                last_commit
-            )
+        for rank, (user, data) in enumerate(sorted_users, 1):
+            first = data['first_commit'].strftime('%Y-%m-%d') if data['first_commit'] else 'N/A'
+            last = data['last_commit'].strftime('%Y-%m-%d') if data['last_commit'] else 'N/A'
+            user_table.add_row(str(rank), user, str(data['unique_commits']), str(len(data['branches'])), first, last)
         
         console.print(user_table)
         
         if detailed:
-            self.display_detailed_branch_stats(stats)
-    
-    def display_detailed_branch_stats(self, stats: Dict):
+            self.display_detailed_branch_stats(stats, time_range_name)
+
+    def display_detailed_branch_stats(self, stats: Dict, time_range_name: Optional[str] = None):
         """Display detailed branch statistics for each user."""
-        console.print("\n🌿 DETAILED BRANCH STATISTICS", style="bold blue")
+        title_suffix = f" for {time_range_name}" if time_range_name else ""
+        console.print(f"\n🌿 DETAILED BRANCH STATISTICS{title_suffix}", style="bold blue")
         console.print("=" * 50)
         
-        for user, user_data in sorted(
-            stats['user_stats'].items(),
-            key=lambda x: x[1]['unique_commits'],
-            reverse=True
-        ):
-            commit_count = user_data['unique_commits']
-            console.print(f"\n👤 {user} ({commit_count} unique commits)", style="bold green")
+        sorted_users = sorted(stats['user_stats'].items(), key=lambda x: x[1]['unique_commits'], reverse=True)
+        
+        for user, data in sorted_users:
+            console.print(f"\n👤 {user} ({data['unique_commits']} unique commits)", style="bold green")
             
             branch_table = Table(title=f"Branch Activity for {user}")
             branch_table.add_column("Branch", style="cyan")
             branch_table.add_column("Unique Commits", style="magenta", justify="center")
-            branch_table.add_column("Total Commits", style="yellow", justify="center")
             branch_table.add_column("Percentage", style="yellow", justify="center")
             
-            branch_data = user_data['unique_commits_by_branch']
-            total_unique_commits = user_data['unique_commits']
-            
-            for branch, commits in sorted(
-                branch_data.items(),
-                key=lambda x: x[1],
-                reverse=True
-            ):
-                percentage = (commits / total_unique_commits) * 100 if total_unique_commits > 0 else 0
-                total_branch_commits = user_data['commits_by_branch'].get(branch, 0)
-                branch_table.add_row(
-                    branch,
-                    str(commits),
-                    str(total_branch_commits),
-                    f"{percentage:.1f}%"
-                )
+            total_commits = data['unique_commits']
+            for branch, commits in sorted(data['unique_commits_by_branch'].items(), key=lambda x: x[1], reverse=True):
+                percentage = (commits / total_commits) * 100 if total_commits > 0 else 0
+                branch_table.add_row(branch, str(commits), f"{percentage:.1f}%")
             
             console.print(branch_table)
-
 
 def load_config(config_path: str = "config.yaml") -> dict:
     """Load configuration from YAML file."""
@@ -320,64 +245,73 @@ def load_config(config_path: str = "config.yaml") -> dict:
     with open(config_path, 'r') as f:
         return yaml.safe_load(f) or {}
 
-
 @click.command()
 @click.option('--config', '-c', default='config.yaml', help='Path to config YAML file')
 @click.option('--org', '-o', help='GitHub organization name')
 @click.option('--repo', '-r', help='Repository name')
 @click.option('--token', '-t', envvar='GITHUB_TOKEN', help='GitHub personal access token')
-@click.option('--branches', '-b', multiple=True, help='Specific branches to analyze (can be used multiple times)')
+@click.option('--branches', '-b', multiple=True, help='Specific branches to analyze')
 @click.option('--detailed', '-d', is_flag=True, help='Show detailed branch statistics for each user')
-@click.option('--include-merge-commits', is_flag=True, help='Include merge commits in the analysis (default: exclude)')
+@click.option('--include-merge-commits', is_flag=True, help='Include merge commits in the analysis')
 @click.option('--output', '-O', type=click.Path(), help='Output file for results (JSON format)')
 def main(config, org, repo, token, branches, detailed, include_merge_commits, output):
     """
-    Calculate user commits across all branches in a GitHub repository.
-    By default, this tool counts only UNIQUE commits.
+    Calculate unique user commits across all branches in a GitHub repository.
     """
-    # Load config file
     config_data = load_config(config)
     
-    # Use config values as defaults, CLI overrides if provided
     org = org or config_data.get('organization')
     repo = repo or config_data.get('repository')
     token = token or os.getenv('GITHUB_TOKEN')
     branch_list = list(branches) if branches else config_data.get('branches')
-    if branch_list == []:
+    if not branch_list:
         branch_list = None
     
-    # Determine whether to exclude merge commits (default: exclude)
-    exclude_merge_commits = not include_merge_commits
-    
     if not token:
-        console.print("❌ GitHub token is required. Set GITHUB_TOKEN environment variable, .env file, or use --token option.", style="red")
+        console.print("❌ GitHub token is required.", style="red")
         sys.exit(1)
     if not org or not repo:
-        console.print("❌ Organization and repository are required. Set in config.yaml or use --org/--repo options.", style="red")
+        console.print("❌ Organization and repository are required.", style="red")
         sys.exit(1)
-    
+
+    time_ranges = config_data.get('time_ranges', [])
+
     try:
-        calculator = GitHubCommitCalculator(token, org, repo, exclude_merge_commits)
-        console.print(f"🚀 Starting commit analysis for {org}/{repo}", style="bold green")
-        if exclude_merge_commits:
-            console.print("🔍 Merge commits will be excluded from analysis", style="blue")
+        calculator = GitHubCommitCalculator(token, org, repo, not include_merge_commits)
+        
+        if not time_ranges:
+            console.print("🚀 Starting analysis for all time.", style="bold green")
+            stats = calculator.calculate_commits(branch_list)
+            calculator.display_summary(stats, "All Time")
+            calculator.display_user_stats(stats, detailed, "All Time")
         else:
-            console.print("🔍 Including merge commits in analysis", style="blue")
-        console.print("✅ Counting only unique commits by default.", style="bold blue")
-        stats = calculator.calculate_commits(branch_list)
-        calculator.display_summary(stats)
-        calculator.display_user_stats(stats, detailed)
+            console.print(f"🚀 Starting analysis for {len(time_ranges)} time range(s).", style="bold green")
+            for tr in time_ranges:
+                name = tr.get('name', 'Unnamed Range')
+                start_str = tr.get('start_date')
+                end_str = tr.get('end_date')
+
+                start_date = datetime.fromisoformat(start_str).replace(tzinfo=timezone.utc) if start_str else None
+                end_date = datetime.fromisoformat(end_str).replace(tzinfo=timezone.utc) if end_str else None
+
+                stats = calculator.calculate_commits(branch_list, start_date, end_date)
+                calculator.display_summary(stats, name)
+                calculator.display_user_stats(stats, detailed, name)
+
         if output:
             import json
+            # Note: The JSON output will only contain the results of the LAST time range.
+            # A more sophisticated JSON output structure would be needed for multiple ranges.
             serializable_stats = stats.copy()
             for user_data in serializable_stats['user_stats'].values():
-                if user_data['first_commit']:
+                if user_data.get('first_commit'):
                     user_data['first_commit'] = user_data['first_commit'].isoformat()
-                if user_data['last_commit']:
+                if user_data.get('last_commit'):
                     user_data['last_commit'] = user_data['last_commit'].isoformat()
             with open(output, 'w') as f:
                 json.dump(serializable_stats, f, indent=2)
             console.print(f"💾 Results saved to {output}", style="green")
+        
         console.print("\n✅ Analysis complete!", style="bold green")
     except KeyboardInterrupt:
         console.print("\n⚠️  Analysis interrupted by user", style="yellow")
@@ -385,7 +319,6 @@ def main(config, org, repo, token, branches, detailed, include_merge_commits, ou
     except Exception as e:
         console.print(f"❌ Unexpected error: {e}", style="red")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main() 

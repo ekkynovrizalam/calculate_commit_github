@@ -2,4 +2,14 @@
 organization: RPL-SI-2025
 repository: RUANGFRI_TIM_367_SI4603
 # List specific branches to analyze, or leave empty for all branches
-branches: [] 
+branches: []
+
+# Optional: Define specific time ranges to analyze.
+# If this section is removed or empty, the entire commit history will be analyzed.
+time_ranges:
+  - name: "Sprint 1"
+    start_date: "2025-03-17"
+    end_date: "2025-05-03"
+  - name: "Sprint 2"
+    start_date: "2025-05-05"
+    end_date: "2025-06-07"
