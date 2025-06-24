@@ -5,7 +5,8 @@ A powerful command-line tool to analyze commit history in GitHub repositories. I
 ## Features
 
 -   **Unique Commit Analysis**: Counts only unique commits (based on message and code changes) to measure true contributions.
--   **Multi-Repository Support**: Analyze multiple repositories within the same organization in a single run.
+-   **Multi-Repository Support**: Analyze multiple repositories within the same organization or user repositories in a single run.
+-   **Flexible Repository Support**: Works with both organization repositories and user repositories (no organization required).
 -   **Time Range Analysis**: Define custom time periods for detailed sprint or milestone analysis.
 -   **Detailed Statistics**: Provides a comprehensive breakdown of commits per user and per branch.
 -   **Merge Commit Filtering**: Excludes merge commits by default for cleaner, more meaningful stats.
@@ -41,20 +42,26 @@ A powerful command-line tool to analyze commit history in GitHub repositories. I
 
 2.  **Configure your Repository(ies):**
     -   Open `config.yaml` and set the `organization` and `repositories` you want to analyze.
-    -   For single repository analysis:
-        ```yaml
-        organization: your_org_name
-        repositories:
-          - your_repo_name
-        ```
-    -   For multi-repository analysis:
-        ```yaml
-        organization: your_org_name
-        repositories:
-          - repo1_name
-          - repo2_name
-          - repo3_name
-        ```
+    
+    **For Organization Repositories:**
+    ```yaml
+    organization: your_org_name
+    repositories:
+      - repo1_name
+      - repo2_name
+      - repo3_name
+    ```
+    
+    **For User Repositories (no organization):**
+    ```yaml
+    organization: null
+    repositories:
+      - username/repo1_name
+      - another-user/repo2_name
+      - username/repo3_name
+    ```
+    
+    **Note**: When `organization` is set, repository names should be just the repository name. When `organization` is `null`, repository names should be in the format `username/repository-name`.
 
 3.  **Time Range Analysis (Optional):**
     -   To analyze specific periods, define `time_ranges` in `config.yaml`. The tool will run a separate analysis for each range across all repositories.
@@ -120,11 +127,17 @@ python3 commit_calculator.py --output-excel report.xlsx
 You can override the `config.yaml` settings using command-line options:
 
 ```bash
-# Single repository
+# Single repository in an organization
 python3 commit_calculator.py --org another-org --repo another-repo
 
-# Multiple repositories (comma-separated)
-python3 commit_calculator.py --org another-org --repos repo1,repo2,repo3
+# Single user repository (no organization)
+python3 commit_calculator.py --repo username/repository-name
+
+# Multiple repositories in an organization
+python3 commit_calculator.py --org another-org --repo repo1 --repo repo2 --repo repo3
+
+# Multiple user repositories (no organization)
+python3 commit_calculator.py --repo username1/repo1 --repo username2/repo2
 ```
 
 ## Output Format
@@ -170,3 +183,28 @@ Sprint 2 (2025-05-05 to 2025-06-07)
 └─────────────┴─────────────────┘
 
 [... continues for all repositories and time ranges ...]
+```
+
+## Examples
+
+### Organization Repositories
+```yaml
+# config.yaml
+organization: my-company
+repositories:
+  - frontend-app
+  - backend-api
+  - mobile-app
+```
+
+### User Repositories
+```yaml
+# config.yaml
+organization: null
+repositories:
+  - octocat/Hello-World
+  - username/my-project
+  - another-user/awesome-repo
+```
+
+See `config_user_repos_example.yaml` for a complete example of user repository configuration.

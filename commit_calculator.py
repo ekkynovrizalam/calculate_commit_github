@@ -31,7 +31,7 @@ console = Console()
 class GitHubCommitCalculator:
     """Calculate unique user commits across all branches in a GitHub repository."""
 
-    def __init__(self, token: str, org_name: str, repo_name: str, exclude_merge_commits: bool = True):
+    def __init__(self, token: str, repo_name: str, org_name: Optional[str] = None, exclude_merge_commits: bool = True):
         self.github = Github(token)
         self.org_name = org_name
         self.repo_name = repo_name
@@ -41,15 +41,24 @@ class GitHubCommitCalculator:
 
     def _authenticate(self):
         try:
-            org = self.github.get_organization(self.org_name)
-            self.repo = org.get_repo(self.repo_name)
+            if self.org_name:
+                # Repository is in an organization
+                org = self.github.get_organization(self.org_name)
+                self.repo = org.get_repo(self.repo_name)
+                repo_path = f"{self.org_name}/{self.repo_name}"
+            else:
+                # Repository is a user repository
+                self.repo = self.github.get_repo(self.repo_name)
+                repo_path = self.repo_name
         except GithubException as e:
             if e.status == 404:
-                console.print(f"❌ Repository {self.org_name}/{self.repo_name} not found", style="red")
+                repo_path = f"{self.org_name}/{self.repo_name}" if self.org_name else self.repo_name
+                console.print(f"❌ Repository {repo_path} not found", style="red")
             elif e.status == 401:
                 console.print("❌ Authentication failed. Please check your GitHub token.", style="red")
             else:
-                console.print(f"❌ Error authenticating with {self.org_name}/{self.repo_name}: {e}", style="red")
+                repo_path = f"{self.org_name}/{self.repo_name}" if self.org_name else self.repo_name
+                console.print(f"❌ Error authenticating with {repo_path}: {e}", style="red")
             raise e
 
     def get_all_branches(self) -> List[str]:
@@ -198,7 +207,11 @@ def save_to_excel(all_results: Dict, filename: str, detailed: bool):
     center_align = Alignment(horizontal='center', vertical='center')
 
     for repo_name, repo_data in all_results.items():
-        sheet_name = repo_name[:31]
+        # Sanitize sheet name by replacing invalid characters with underscores
+        # Excel sheet names cannot contain: \ / ? * [ ]
+        sheet_name = repo_name.replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_')
+        # Limit to 31 characters (Excel limit)
+        sheet_name = sheet_name[:31]
         ws = workbook.create_sheet(title=sheet_name)
         
         ws.cell(row=1, column=1, value=f"Analysis for Repository: {repo_name}").font = Font(bold=True, size=16)
@@ -274,16 +287,17 @@ def main(config, org, repos, token, branches, detailed, include_merge_commits, o
     repositories = repos if repos else config_data.get('repositories', [])
     token = token or os.getenv('GITHUB_TOKEN')
     
-    if not token or not org or not repositories:
-        console.print("❌ Token, organization, and at least one repository are required.", style="red")
+    if not token or not repositories:
+        console.print("❌ Token and at least one repository are required.", style="red")
         sys.exit(1)
     
     overall_stats = {}
 
     for repo_name in repositories:
-        console.print(f"\n\n{'='*25}\n ANALYZING REPOSITORY: {org}/{repo_name} \n{'='*25}", style="bold yellow on black")
+        repo_path = f"{org}/{repo_name}" if org else repo_name
+        console.print(f"\n\n{'='*25}\n ANALYZING REPOSITORY: {repo_path} \n{'='*25}", style="bold yellow on black")
         try:
-            calculator = GitHubCommitCalculator(token, org, repo_name, not include_merge_commits)
+            calculator = GitHubCommitCalculator(token, repo_name, org, not include_merge_commits)
             branch_list = list(branches) if branches else config_data.get('branches')
             if not branch_list:
                 branch_list = None

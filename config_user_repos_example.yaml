@@ -1,26 +1,23 @@
-# General configuration for commit calculator
+# Example configuration for user repositories (not in an organization)
 # Organization name (can be null if repositories are not in an organization)
 organization: null
 # List one or more repositories to analyze.
 # If organization is null, repositories should be in format "username/repository-name"
 # If organization is set, repositories should be just the repository name
 repositories:
-#  - aldomskt/Tugas-Besar-WAD_SI4701_Kelompok-1
-  - S4nn-Tuyy/TUBES_KELOMPOK8
-#  - nawfaldo/tubes_paw
-#  - DeazardMuhammad/TIM-3-TUBES-WAD
-#  - rai3X/TUBES-WAD-KELOMPOK-4
-#  - yasvxz/tubes_wad_kel_2.git
-#  - ezaarp/WEB-SEWA-LAPANGAN_TIM-TUBES-5_SI4701
-#  - reynady/WAD_TUBES_KEL9_Project 
-#  - TheoVol/Tugas_Besar_PAW_Kel_7
+  - octocat/Hello-World
+  - username/my-project
+  - another-user/awesome-repo
 
 # List specific branches to analyze, or leave empty for all branches
 branches: []
 
 # Optional: Define specific time ranges to analyze.
 # If this section is removed or empty, the entire commit history will be analyzed.
-# time_ranges:
-#   - name: "Penilaian"
-#     start_date: "2025-05-18"
-#     end_date: "2025-06-01"
+time_ranges:
+  - name: "Last Month"
+    start_date: "2024-01-01"
+    end_date: "2024-01-31"
+  - name: "Last Quarter"
+    start_date: "2023-10-01"
+    end_date: "2023-12-31" 
